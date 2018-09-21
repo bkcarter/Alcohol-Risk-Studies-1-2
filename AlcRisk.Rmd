@@ -1,0 +1,1009 @@
+---
+title: "Alcohol Advertising Risk-taking Studies"
+output:
+  html_document:
+    theme: default
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(ggsignif)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(psych)
+#library(lmSupport)
+library(doBy)
+library(lme4)
+library(lmerTest)
+library(corrplot)
+library(stringr)
+library(Hmisc)
+library(rmarkdown)
+library(stargazer)
+library(kableExtra)
+library(knitr)
+```
+
+# Study 1 (4a) {.tabset}
+
+```{r, data.import.4a, echo=FALSE}
+setwd("/xxxx") # Set to file containing your datafiles
+raw4a <-  read.table("rawdata4a.txt", header=T, sep = "\t",fileEncoding="UTF-16", strip.white=T, fill=T, quote="")
+
+#remove bad sub 7063
+raw4a <- raw4a[raw4a$Subject != 7063,]
+
+gamble.full <- raw4a[raw4a$Block==2,]
+gq.full <- raw4a[raw4a$Block==3,]
+
+gamble <- gamble.full[,c('Subject','Group','choice.RESP','choice.RT','choice.RTTime','choiceval','highval','lowval','pic1','pic2','PicID','totalsumatt','TrialList','TrialList.Sample','varatt')]
+
+gq <- gq.full[,c('Subject','Effort.RESP','Trial','Age.RESP','Ethnicity.RESP','NIAAABinge.RESP','NIAAAFrequency.RESP','NIAAALifeMax.RESP','NIAAAMax.RESP','NIAAAMaxFreq.RESP','NIAAAQs','NIAAAQuantity.RESP','Procedure.Trial.','Running.Trial.','Sex.RESP')]
+
+gq.demo<- gq[gq$Trial==3,]       # demographic data
+gq.use <- gq[gq$Trial==2,]       # NIAAA use data
+```
+
+```{r, gambling.wrangling.4a, echo=FALSE}
+gamble$response <- with(gamble, ifelse(choice.RESP==1,0,1))
+gamble$prime <- str_trunc(as.character(gamble$pic2), 3, "right", ellipsis = "")
+
+gamble$beerlo <- with(gamble, (prime=='pab' & choice.RESP==1)*1)
+gamble$beerhi <- with(gamble, (prime=='pab' & choice.RESP==9)*1)
+gamble$waterlo <- with(gamble, (prime=='das' & choice.RESP==1)*1)
+gamble$waterhi <- with(gamble, (prime=='das' & choice.RESP==9)*1)
+gamble$neutlo <- with(gamble, (prime=='neu' & choice.RESP==1)*1)
+gamble$neuthi <- with(gamble, (prime=='neu' & choice.RESP==9)*1)
+
+gamble$beerlo[is.na(gamble$beerlo)] <- 0
+gamble$beerhi[is.na(gamble$beerhi)] <- 0
+gamble$waterlo[is.na(gamble$waterlo)] <- 0
+gamble$waterhi[is.na(gamble$waterhi)] <- 0
+gamble$neutlo[is.na(gamble$neutlo)] <- 0
+gamble$neuthi[is.na(gamble$neuthi)] <- 0
+
+gamble$BvW <- with(gamble, (prime=="pab")*(1/2) + (prime=="das")*(-1/2) + (prime=="neu")*0)
+gamble$BWvN <- with(gamble, (prime=="pab")*(1/3) + (prime=="das")*(1/3) + (prime=="neu")*(-2/3))
+gamble$BvN <- with(gamble, (prime=="pab")*(1/2) + (prime=="das")*(0) + (prime=="neu")*(-1/2))
+gamble$BNvW <- with(gamble, (prime=="pab")*(1/3) + (prime=="das")*(-2/3) + (prime=="neu")*(1/3))
+gamble$WvN <- with(gamble, (prime=="pab")*(0) + (prime=="das")*(1/2) + (prime=="neu")*(-1/2))
+gamble$WNvB <- with(gamble, (prime=="pab")*(-2/3) + (prime=="das")*(1/3) + (prime=="neu")*(1/3))
+
+gamble$vidCvM <- with(gamble, (Group==1)*1 + (Group==2)*1 + (Group==3)*-1 +(Group==4)*-1)
+gamble$vidBvW <- with(gamble, (Group==1)*1 + (Group==2)*-1 + (Group==3)*1 +(Group==4)*-1)
+gamble$vidint <- with(gamble, (Group==1)*1 + (Group==2)*-1 + (Group==3)*-1 +(Group==4)*1)
+
+
+# Create wide format
+gamble.w <- aggregate(cbind(Group, beerlo, beerhi, waterlo, waterhi, neutlo, neuthi) ~ Subject, data=gamble, FUN=sum)
+
+gamble.w$Group <- gamble.w$Group/72
+
+gamble.w$beer.risk <- with(gamble.w, beerhi/(beerhi+beerlo))
+gamble.w$water.risk <- with(gamble.w, waterhi/(waterhi+waterlo))
+gamble.w$neut.risk <- with(gamble.w, neuthi/(neuthi+neutlo))
+
+gamble.w$beer.dif <- with(gamble.w, beerhi-beerlo)
+gamble.w$water.dif <- with(gamble.w, waterhi-waterlo)
+gamble.w$neut.dif <- with(gamble.w, neuthi-neutlo)
+
+gamble.w$beerlo.prop <- gamble.w$beerlo/24
+gamble.w$beerhi.prop <- gamble.w$beerhi/24
+gamble.w$watrlo.prop <- gamble.w$waterlo/24
+gamble.w$watrhi.prop <- gamble.w$waterhi/24
+gamble.w$neutlo.prop <- gamble.w$neutlo/24
+gamble.w$neuthi.prop <- gamble.w$neuthi/24
+
+gamble.w$beer.pdif <- with(gamble.w, beerhi.prop-beerlo.prop)
+gamble.w$water.pdif <- with(gamble.w, watrhi.prop-watrlo.prop)
+gamble.w$neut.pdif <- with(gamble.w, neuthi.prop-neutlo.prop)
+
+gamble.w$BvW <- gamble.w$beer.pdif-gamble.w$water.pdif
+gamble.w$BvN <- gamble.w$beer.pdif-gamble.w$neut.pdif
+gamble.w$NvW <- gamble.w$neut.pdif-gamble.w$water.pdif
+
+gamble.w$BvWrisk <- gamble.w$beer.risk-gamble.w$water.risk
+gamble.w$BvNrisk <- gamble.w$beer.risk-gamble.w$neut.risk
+gamble.w$NvWrisk <- gamble.w$neut.risk-gamble.w$water.risk
+
+gamble.w$vidCvM <- with(gamble.w, (Group==1)*1 + (Group==2)*1 + (Group==3)*-1 +(Group==4)*-1)
+gamble.w$vidBvW <- with(gamble.w, (Group==1)*1 + (Group==2)*-1 + (Group==3)*1 +(Group==4)*-1)
+gamble.w$vidint <- with(gamble.w, (Group==1)*1 + (Group==2)*-1 + (Group==3)*-1 +(Group==4)*1)
+```
+
+```{r, questonnaire.wrangling.4a, echo=FALSE}
+# NIAAA Use Data (recode and calc AlcQF)
+# recode Binge using lookup table
+old <- c(9,8,7,6,5,4,3,2,1)
+new <- c(.03,.135,.25,.625,1,2,3.5,5.5,7)
+binge.lu <- data.frame(old,new)             
+gq.use$Binge.re  <- lapply(gq.use$NIAAABinge.RESP, function(x) binge.lu$new[match(x, binge.lu$old)])
+
+# recode Frequency using lookup table
+old <- c(1,2,3,4,5,6,7,8,9)
+new <- c(7,5.5,3.5,2,1,0.625,0.25,0.135,0.03)
+freq.lu <- data.frame(old,new)             
+gq.use$Freq.re  <- lapply(gq.use$NIAAAFrequency.RESP, function(x) freq.lu$new[match(x, freq.lu$old)])
+
+# recode Quantity using lookup table
+old <- c(1,2,3,4,5,6,7,8,9,10)
+new <- c(27,21.5,17,13.5,10,7.5,5.5,3.5,2,1)
+quant.lu <- data.frame(old,new)             
+gq.use$Quantity.re  <- lapply(gq.use$NIAAAQuantity.RESP, function(x) quant.lu$new[match(x, quant.lu$old)])
+
+# recode LifeMax using lookup table
+old <- c(1,2,3,4,5,6,7,8,9,10)
+new <- c(36,30,20.5,14.5,9.5,6,4,3,2,1)
+lmax.lu <- data.frame(old,new)             
+gq.use$LifeMax.re  <- lapply(gq.use$NIAAALifeMax.RESP, function(x) lmax.lu$new[match(x, lmax.lu$old)])
+
+# recode Max using lookup table (same as LifeMax)
+gq.use$Max.re <- lapply(gq.use$NIAAAMax.RESP, function(x) lmax.lu$new[match(x, lmax.lu$old)])
+
+# recode MaxFreq using lookup table (same as Freq)
+gq.use$MaxFreq.re <- lapply(gq.use$NIAAAMaxFreq.RESP, function(x) freq.lu$new[match(x, freq.lu$old)])
+
+# Calc AlcQF score
+gq.use$AlcQF <- as.numeric(gq.use$Freq.re) * as.numeric(gq.use$Quantity.re)
+
+gq.use.w <- gq.use[,c("Subject","NIAAABinge.RESP","Binge.re","NIAAAFrequency.RESP","Freq.re","NIAAALifeMax.RESP","LifeMax.re","NIAAAMax.RESP","Max.re","NIAAAMaxFreq.RESP","MaxFreq.re","NIAAAQuantity.RESP","Quantity.re","AlcQF")] 
+colnames(gq.use.w) <- c('Subject', 'Binge',"Binge.re","Freq",'Freq.re','LifeMax','LifeMax.re', 'Max','Max.re','MaxFreq','MaxFreq.re',"Quantity","Quantity.re","AlcQF")
+
+# Combine questionnaire scores and gambling task measures
+joinlist = list(gamble.w[,c('Subject','beer.dif','water.dif','neut.dif'),], gq.use.w)
+combined <- join_all(joinlist, by="Subject")
+combined1<-combined[,c(2:4,6,8,10,12,14,16,17)]
+combined.gq <- combined[,-(2:4)]   # questionnaires scores only
+
+# Add questionnaire scores to gambling task dataframe
+gamble <- merge(gamble, combined.gq, "Subject")
+
+# mean center function
+meancent <- function(x) {x-mean(x,na.rm=T)}
+
+gamble$AlcQF.c<-meancent(gamble$AlcQF)
+gamble$Binge.re.c<-meancent(as.numeric(gamble$Binge.re))
+
+gamble[,33:45] <-as.numeric(unlist(gamble[,33:45]))
+gamble[,33:45] <- apply(gamble[,33:45], MARGIN=2, FUN=meancent)    # meancenter all survey variables
+```
+
+## Descriptives and Chart
+```{r, echo=FALSE}
+# convert to tidy data
+gamble.tidy <- gather(gamble.w, resp.type, resp.prop, beerlo.prop:neuthi.prop)
+gamble.tidy$resp.type <- str_trunc(as.character(gamble.tidy$resp.type), 6, "right", ellipsis = "")
+gamble.tidy<-separate(gamble.tidy, resp.type, into=c("prime.type", "risk.resp"), sep = 4)
+gamble.tidy$risk.resp <- ifelse(gamble.tidy$risk.resp=="hi", "High", "Low")
+
+# summarize to calc mean, sd, se, length
+gamble.sum <- summaryBy(resp.prop ~ prime.type + risk.resp, data=gamble.tidy, FUN=c(mean, sd, length))
+colnames(gamble.sum) <- c("prime.type", "risk.resp","m","sd","len")
+gamble.sum$se <- gamble.sum$sd/sqrt(gamble.sum$len)
+gamble.sum$prime.type<-as.factor(gamble.sum$prime.type)
+gamble.sum$risk.resp<-as.factor(gamble.sum$risk.resp)
+
+# stargazer(gamble.w[,16:21], covariate.labels = c("Beer-Low Risk",'Beer-High Risk','Water-Low Risk','Water-High Risk','Neutral-Low Risk','Neutral-High Risk'), type="text")
+
+gamble.sum.named <- gamble.sum
+gamble.sum.named$prime.type <- ifelse(gamble.sum.named$prime.type=="beer", "Beer", ifelse(gamble.sum.named$prime.type=="watr", "Water", "Neutral"))
+colnames(gamble.sum.named) <- c("Prime Type", "Risk Response","Proportion","SD","N", "SE")
+
+options(knitr.table.format = "html")
+kable(gamble.sum.named[,1:5], "html",digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+# Bar graph
+       
+ggplot(gamble.sum, aes(x=prime.type, y = m, fill=risk.resp)) +
+  geom_bar(stat = "identity",width=.7, position=position_dodge(.75)) +
+  geom_errorbar(aes(ymin=m-se, ymax=m+se, width=.2), position=position_dodge(.75)) +
+  geom_signif(comparisons = list(c("beer", "neut")), annotations="***", y_position = .7, tip_length = 0.03) +
+  geom_signif(comparisons = list(c("beer", "watr")), annotations="**", y_position = .75, tip_length = 0.03) +
+  geom_signif(y_position=.62, xmin=0.82, xmax=1.18, annotation="***", tip_length=.02) +
+  scale_x_discrete(labels=c("Beer", 'Neutral','Water'), expand=c(0.03,0.03)) +
+  scale_y_continuous(limits = c(0,.8), breaks = seq(0,.8,.1), expand=c(0.00,0.01)) +
+  scale_fill_manual(values=c ("#BA4A00", "#0B5345")) +
+  #ggtitle("Alcohol Advertising Study 4a") + 
+  labs(x = "Prime Type", y = "Response Proportion", fill="Risk") +
+  theme(
+        #plot.title = element_text(size=rel(1.5), hjust = .5, face="bold"), 
+        axis.title = element_text(size=16, face="bold"),
+        legend.title = element_text(size=16, face="bold"),
+        axis.text = element_text(size = rel(1),  color="grey25", face="bold"),
+        legend.text = element_text(size = rel(1), color="grey25",face="bold"))
+```
+
+
+## Charts including condition 
+
+DV: Proportion of high risk responses - proportion of low risk responses   
+
+```{r, echo=FALSE}
+# convert to tidy data
+gamble.tidy.wcond <- gather(gamble.w, resp.type, resp.prop, beer.pdif:neut.pdif)
+gamble.tidy.wcond$resp.type <- str_trunc(as.character(gamble.tidy.wcond$resp.type), 4, "right", ellipsis = "")
+
+gamble.tidy.wcond<-separate(gamble.tidy.wcond, resp.type, into=c("prime.type", "risk.resp"), sep = 4)
+gamble.tidy.wcond$risk.resp <- ifelse(gamble.tidy.wcond$risk.resp=="hi", "High", "Low")
+
+# summarize to calc mean, sd, se, length
+gamble.sum.wcond <- summaryBy(resp.prop ~ Group + prime.type, data=gamble.tidy.wcond, FUN=c(mean, sd, length))
+  
+colnames(gamble.sum.wcond) <- c("group","prime", "risk.dif","sd","len")
+gamble.sum.wcond$se <- gamble.sum.wcond$sd/sqrt(gamble.sum.wcond$len)
+gamble.sum.wcond$group <- as.factor(gamble.sum.wcond$group)
+gamble.sum.wcond$prime <- as.factor(gamble.sum.wcond$prime)
+
+#par(mar=c(4,4,4,4))
+
+ggplot(gamble.sum.wcond, aes(x=group, y = risk.dif, fill=prime)) +
+  geom_bar(stat = "identity",width=.7, position=position_dodge(.75)) +
+  geom_errorbar(aes(ymin=risk.dif-se, ymax=risk.dif+se, width=.2), position=position_dodge(.75)) +
+  scale_x_discrete(labels=c("CU Beer", "CU Water","MU Beer", "MU Water")) +
+  scale_y_continuous(limits = c(-.1,.4), breaks = seq(-.1,.4,.05)) +
+  scale_fill_manual(values=c ("#BA4A00", "#0B5345", "#144eaa"), labels=c("Beer","Neutral", "Water"))+
+  #ggtitle("Study 4a Video Manipulation") + 
+  labs(x = "Video Condition", y = "Proportion Hi - Proportion Lo", fill="Prime") +
+  theme(
+        plot.title = element_text(size=rel(1.5), hjust = .5, face="bold"), 
+        axis.title = element_text(size=16, face="bold"),
+        legend.title = element_text(size=16, face="bold"),
+        axis.text = element_text(size = rel(1),  color="grey25", face="bold"),
+        legend.text = element_text(size = rel(1), color="grey25",face="bold"))
+
+```
+    
+    
+    
+DV: Risk variable: number of high risk responses/(number of high risk + low risk responses)    
+
+```{r, echo=FALSE}
+
+# convert to tidy data
+gamble.tidy.wcond <- gather(gamble.w, resp.type, risk.score, beer.risk:neut.risk)
+gamble.tidy.wcond$resp.type <- str_trunc(as.character(gamble.tidy.wcond$resp.type), 4, "right", ellipsis = "")
+
+
+#gamble.tidy.wcond<-separate(gamble.tidy.wcond, resp.type, into=c("prime.type", "risk.resp"), sep = 4)
+#gamble.tidy.wcond$risk.resp <- ifelse(gamble.tidy.wcond$risk.resp=="hi", "High", "Low")
+
+# summarize to calc mean, sd, se, length
+gamble.sum.wcond <- summaryBy(risk.score ~ Group + resp.type, data=gamble.tidy.wcond, FUN=c(mean, sd, length))
+  
+colnames(gamble.sum.wcond) <- c("group","prime", "risk.mean","sd","len")
+gamble.sum.wcond$se <- gamble.sum.wcond$sd/sqrt(gamble.sum.wcond$len)
+gamble.sum.wcond$group <- as.factor(gamble.sum.wcond$group)
+gamble.sum.wcond$prime <- as.factor(gamble.sum.wcond$prime)
+
+#par(mar=c(4,4,4,4))
+
+ggplot(gamble.sum.wcond, aes(x=group, y = risk.mean, fill=prime)) +
+  geom_bar(stat = "identity",width=.7, position=position_dodge(.75)) +
+  geom_errorbar(aes(ymin=risk.mean-se, ymax=risk.mean+se, width=.2), position=position_dodge(.75)) +
+  scale_x_discrete(labels=c("CU Beer", "CU Water","MU Beer", "MU Water")) +
+  coord_cartesian(ylim=c(.4,.8))+
+  scale_y_continuous(limits = c(0,.8), breaks = seq(0,.8,.1)) +
+  scale_fill_manual(values=c ("#BA4A00", "#0B5345", "#144eaa"), labels=c("Beer","Neutral", "Water"))+
+  #ggtitle("Study 4a Video Manipulation") + 
+  labs(x = "Video Condition", y = "Risk Score: hi/(hi+lo)", fill="Prime") +
+  theme(
+        plot.title = element_text(size=rel(1.5), hjust = .5, face="bold"), 
+        axis.title = element_text(size=16, face="bold"),
+        legend.title = element_text(size=16, face="bold"),
+        axis.text = element_text(size = rel(1),  color="grey25", face="bold"),
+        legend.text = element_text(size = rel(1), color="grey25",face="bold"))
+
+
+
+```
+
+## Models {.tabset}
+
+### Simple Effects {.tabset}
+Tests if the difference in propotions of high-risk responses is different from the proportions of low-risk for each prime category.
+
+#### Beer
+```{r, echo=F}
+# Beer simple
+beer1 <- lm(beer.dif~1, gamble.w)
+summary(beer1)
+```
+
+#### Water
+```{r, echo=F}
+# water simple
+water1 <- lm(water.dif~1, gamble.w)
+summary(water1)
+```
+
+#### Neutral
+```{r, echo=F}
+# neutral simple
+neut1 <- lm(neut.dif~1, gamble.w)
+summary(neut1)
+```
+
+### Mixed Effects Models {.tabset}
+
+#### Beer vs Water
+This model tests the effects of a Beer vs a Water prime on risk response.  
+Fixed effects:    
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Beer/Water contrast: Beer = +1/2, Water = -1/2, Neutral = 0    
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Orthogonal contrast: Beer = +1/3, Water = +1/3,  Neutral = -2/3  
+Random effects:  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Subject: Intercept, slope for each contrast   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stimuli(pic2): Intercept  
+
+```{r, eval=T, echo=FALSE}
+mixed1 <- glmer(response ~ BvW + BWvN + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixed1)
+```
+
+This model adds the Alcohol Quantity-Frequency Product (AlcQF) and its interactions to the list of fixed effects and calculates an AlcQF slope for each stimuli picture.  
+```{r, eval=T, echo=FALSE}
+mixed1a <- glmer(response ~ BvW + BWvN + AlcQF*BvW + AlcQF*BWvN + (1+BvW+BWvN|Subject) + (1+AlcQF|pic2), data=gamble, family=binomial(logit))    
+summary(mixed1a)
+
+#mixed1b <- glmer(response ~ BvW + BWvN + Binge.re.c*BvW + Binge.re.c*BWvN + (1+BvW+BWvN|Subject) + (1+Binge.re.c|pic2), data=gamble, family=binomial(logit))    
+#summary(mixed1b)
+```
+
+#### Beer vs Neutral
+This model tests the effects of a Beer vs a Neutral prime on risk response.  
+Fixed effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Beer/Neutral contrast: Beer = +1/2, Neutral = -1/2, Water = 0   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Orthogonal contrast: Beer = +1/3, Neutral = +1/3,  Water = -2/3  
+Random effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Subject: Intercept, slope for each contrast   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stimuli(pic2): Intercept  
+                
+```{r, eval=T, echo=FALSE}
+mixed2 <- glmer(response ~ BvN + BNvW + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixed2)
+```
+
+This model adds the Alcohol Quantity-Frequency Product (AlcQF) and its interactions to the list of fixed effects and calculates an AlcQF slope for each stimuli picture.  
+```{r, eval=T, echo=FALSE}
+mixed2a <- glmer(response ~ BvN + BNvW + AlcQF*BvN + AlcQF*BNvW + (1+BvN + BNvW|Subject) + (1+AlcQF|pic2), data=gamble, family=binomial(logit))    
+summary(mixed2a)
+
+#mixed2b <- glmer(response ~ BvN + BNvW + Binge.re.c*BvN + Binge.re.c*BNvW + (1+BvN+BNvW|Subject) + (1+Binge.re.c|pic2), data=gamble, family=binomial(logit))    
+#summary(mixed2b)
+```
+
+#### Water vs Neutral
+This model tests the effects of a Water vs a Neutral prime on risk response.  
+Fixed effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Water/Neutral contrast: Water = +1/2, Neutral = -1/2, Beer = 0   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Orthogonal contrast: Water = +1/3, Neutral = +1/3,  Beer = -2/3  
+Random effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Subject: Intercept, slope for each contrast   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stimuli(pic2): Intercept  
+                
+```{r, eval=T, echo=FALSE}
+mixed3 <- glmer(response ~ WvN + WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixed3)
+```
+
+This model adds the Alcohol Quantity-Frequency Product (AlcQF) and its interactions to the list of fixed effects and calculates an AlcQF slope for each stimuli picture.  
+```{r, eval=T, echo=FALSE}
+mixed3a <- glmer(response ~ WvN + WNvB + AlcQF*WvN + AlcQF*WNvB + (1+WvN + WNvB|Subject) + (1+AlcQF|pic2), data=gamble, family=binomial(logit))    
+summary(mixed3a)
+```
+
+### Models including condition {.tabset}
+
+#### Mixed effects model
+This mixed model tests a contrast between risks decisions made after Beer primes vs Water and Neutral primes combined (WNvB). It includes video group and beverage contrasts and their interaction.
+```{r, eval=T, echo=FALSE}
+mixedcond1 <- glmer(response ~ WNvB + WvN + vidCvM*WNvB + vidBvW*WNvB + vidint*WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixedcond1)
+```
+
+```{r, eval=F, echo=FALSE}
+#test: only beer primes
+mixedcondt1 <- glmer(response ~ vidCvM*vidBvW + (1|Subject) + (1|pic2), data=gamble[gamble$prime=="pab",], family=binomial(logit))
+summary(mixedcondt1)
+```
+
+```{r, eval=F, echo=FALSE}
+#CU beer vid vs CU water vid
+mixedcond1a <- glmer(response ~ WvN + WNvB + vidBvW*WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble[gamble$Group==1|gamble$Group==2,], family=binomial(logit))
+summary(mixedcond1a)
+```
+
+```{r, eval=F, echo=FALSE}
+#CU beer vid vs MU beer vid
+mixedcond1b <- glmer(response ~ WNvB + WvN + vidCvM*WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble[gamble$Group==1|gamble$Group==3,], family=binomial(logit))
+summary(mixedcond1b)
+```
+
+
+#### Standard analyses (ANOVA Ws)
+
+These models test a Beer prime vs a Water prime contrast with both video factors included in the model. 
+BvW is calculated as: proportion of high risk responses after beer primes - proportion of high risk responses after water primes. 
+BvWrisk is calculated as: beer risk - water risk. Risk variable: high risk response/(hi + lo risk repsonses) for each prime type.
+
+
+```{r, eval=T, echo=FALSE}
+wmod1 <- lm(BvW ~ vidCvM + vidBvW + vidint, data=gamble.w)
+summary(wmod1)
+
+wmod1r <- lm(BvWrisk ~ vidCvM + vidBvW + vidint, data=gamble.w)
+summary(wmod1r)
+```
+
+This model tests a Beer prime vs a Neutral prime contrast with both video factors included in the model. 
+BvN is calculated as: proportion of high risk responses after beer primes - proportion of high risk responses after neutral primes.
+BvNrisk is calculated as: beer risk - neutral risk. Risk variable: high risk response/(hi + lo risk repsonses) for each prime type.
+
+```{r, eval=T, echo=FALSE}
+wmod2 <- lm(BvN ~ vidCvM + vidBvW + vidint, data=gamble.w)
+summary(wmod2)
+
+wmod2r <- lm(BvNrisk ~ vidCvM + vidBvW + vidint, data=gamble.w)
+summary(wmod2r)
+```
+
+This model tests a Water prime vs a Neutral prime contrast with both video factors included in the model. 
+NvW is calculated as: proportion of high risk responses after neutral primes - proportion of high risk responses after water primes.
+NvWrisk is calculated as: neutral risk - water risk. Risk variable: high risk response/(hi + lo risk repsonses) for each prime type.
+```{r, eval=T, echo=FALSE}
+wmod3 <- lm(NvW ~ vidCvM + vidBvW + vidint, data=gamble.w)
+summary(wmod3)
+
+wmod3r <- lm(NvWrisk ~ vidCvM + vidBvW + vidint, data=gamble.w)
+summary(wmod3r)
+```
+
+
+#### Simples
+BvW is calculated as: proportion of high risk responses after beer primes - proportion of high risk responses after water primes. 
+BvWrisk is calculated as: beer risk - water risk. Risk variable: high risk response/(hi + lo risk repsonses) for each prime type.
+
+BvN is calculated as: proportion of high risk responses after beer primes - proportion of high risk responses after neutral primes.
+BvNrisk is calculated as: beer risk - neutral risk. Risk variable: high risk response/(hi + lo risk repsonses) for each prime type.
+
+CU Beer
+```{r, eval=T, echo=FALSE}
+wmod1a <- lm(BvW ~ 1, data=gamble.w[gamble.w$Group==1, ])
+summary(wmod1a)
+
+wmod1ar <- lm(BvWrisk ~ 1, data=gamble.w[gamble.w$Group==1, ])
+summary(wmod1ar)
+
+wmod2a <- lm(BvN ~ 1, data=gamble.w[gamble.w$Group==1, ])
+summary(wmod2a)
+
+wmod2ar <- lm(BvNrisk ~ 1, data=gamble.w[gamble.w$Group==1, ])
+summary(wmod2ar)
+```
+   
+CU Water
+```{r, eval=T, echo=FALSE}
+wmod1b <- lm(BvW ~ 1, data=gamble.w[gamble.w$Group==2, ])
+summary(wmod1b)
+
+wmod1br <- lm(BvWrisk ~ 1, data=gamble.w[gamble.w$Group==2, ])
+summary(wmod1br)
+
+wmod2b <- lm(BvN ~ 1, data=gamble.w[gamble.w$Group==2, ])
+summary(wmod2b)
+
+wmod2br <- lm(BvNrisk ~ 1, data=gamble.w[gamble.w$Group==2, ])
+summary(wmod2br)
+```
+   
+MU Beer
+```{r, eval=T, echo=FALSE}
+wmod1c <- lm(BvW ~ 1, data=gamble.w[gamble.w$Group==3, ])
+summary(wmod1c)
+
+wmod1cr <- lm(BvWrisk ~ 1, data=gamble.w[gamble.w$Group==3, ])
+summary(wmod1cr)
+
+wmod2c <- lm(BvN ~ 1, data=gamble.w[gamble.w$Group==3, ])
+summary(wmod2c)
+
+wmod2cr <- lm(BvNrisk ~ 1, data=gamble.w[gamble.w$Group==3, ])
+summary(wmod2cr)
+```
+   
+MU Water
+```{r, eval=T, echo=FALSE}
+wmod1d <- lm(BvW ~ 1, data=gamble.w[gamble.w$Group==4, ])
+summary(wmod1d)
+
+wmod1dr <- lm(BvWrisk ~ 1, data=gamble.w[gamble.w$Group==4, ])
+summary(wmod1dr)
+
+wmod2d <- lm(BvN ~ 1, data=gamble.w[gamble.w$Group==4, ])
+summary(wmod2d)
+
+wmod2dr <- lm(BvNrisk ~ 1, data=gamble.w[gamble.w$Group==4, ])
+summary(wmod2dr)
+```
+
+```{r, eval=F, echo=FALSE}
+#Simple: CU Beer
+mixedcond1c <- glmer(response ~ WvN + WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble[gamble$Group==1,], family=binomial(logit))
+summary(mixedcond1c)
+```
+
+```{r, eval=F, echo=FALSE}
+#Simple: MU Beer
+mixedcond1d <- glmer(response ~ WvN + WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble[gamble$Group==2,], family=binomial(logit))
+summary(mixedcond1d)
+```
+
+```{r, eval=F, echo=FALSE}
+#Simple: CU Water
+mixedcond1e <- glmer(response ~ WvN + WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble[gamble$Group==3,], family=binomial(logit))
+summary(mixedcond1e)
+```
+
+```{r, eval=F, echo=FALSE}
+#Simple: MU Water
+mixedcond1f <- glmer(response ~ WvN + WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble[gamble$Group==4,], family=binomial(logit))
+summary(mixedcond1f)
+```
+
+
+## Correlations {.tabset}
+
+### NIAAA Use Measures
+**These include raw and recoded (.re) values. P-values shown.**
+```{r, usecorrelations.4a, eval=T, echo=F, fig.width=8, fig.asp=1}
+cor.use <- rcorr(as.matrix(gq.use.w[,2:14]), type="pearson")
+corrplot(cor.use$r, p.mat= cor.use$P, insig='p-value',sig.level=-1, method='circle')
+```
+      
+**Correlation coefficients shown.**
+```{r, eval=T, echo=F, fig.width=8, fig.asp=1}
+# mixed
+corrplot.mixed(cor.use$r, tl.cex=.7)
+```
+
+### Combined 
+beer.dif = hi-risk beer responses - low-risk beer responses    
+water.dif = hi-risk water responses - low-risk water responses   
+neutral.dif = hi-risk neutral responses - low-risk neutral responses 
+
+**P-values shown.**
+```{r, combined.correlations.4a, eval=T, echo=F, fig.width=8, fig.asp=1}
+cor1 <- rcorr(as.matrix(combined1), type="pearson")
+corrplot(cor1$r, p.mat= cor1$P, insig='p-value', sig.level=-1, method='circle')
+#corrplot(cor1$r, method='circle')
+```
+   
+**Correlation coefficients shown.**
+```{r, eval=T, echo=F, fig.width=8, fig.asp=1}
+# mixed
+corrplot.mixed(cor1$r, tl.cex=.7)
+```
+
+
+
+# Study 2 (4b) {.tabset}
+
+```{r, data.import.4b, echo=FALSE}
+setwd("/xxxx") # Set to file containing your datafiles
+raw <-  read.table("rawdata4b.txt", header=T, sep = "\t",fileEncoding="UTF-16", strip.white=T, fill=T, quote="")
+
+gamble.full <- raw[raw$Block==1,]
+gq.full <- raw[raw$Block==2,]
+
+gamble <- gamble.full[,c('Subject','choice.RESP','choice.RT','choice.RTTime','choiceval','highval','lowval','pic1','pic2','PicID','totalsumatt','TrialList','TrialList.Sample','varatt')]
+
+gq <- gq.full[,c('Subject','Effort.RESP','Trial','Age.RESP','Ethnicity.RESP','IntoxRiskTaking','IntoxRiskTaking.Sample','NIAAABinge.RESP','NIAAAFrequency.RESP','NIAAALifeMax.RESP','NIAAAMax.RESP','NIAAAMaxFreq.RESP','NIAAAQs','NIAAAQuantity.RESP','Procedure.Trial.','Answers','qName','QuestionSlide.RESP','QuestionText','RAPI','RAPI.Sample','Running.Trial.','Sex.RESP')]
+
+gq.use <- gq[gq$Trial==1,]
+gq.rapi <- gq[gq$Trial>=2 & gq$Trial <=24,]
+gq.risk <- gq[gq$Trial>=25 & gq$Trial <=36,]
+gq.ae <- gq[gq$Trial>=39 & gq$Trial <=52,]
+```
+
+
+```{r, gambling.wrangling.4b, echo=FALSE}
+gamble$response <- with(gamble, ifelse(choice.RESP==1,0,1))
+gamble$prime <- str_trunc(as.character(gamble$pic2), 3, "right", ellipsis = "")
+
+gamble$BvW <- with(gamble, (prime=="pab")*(1/2) + (prime=="das")*(-1/2) + (prime=="neu")*0)
+gamble$BWvN <- with(gamble, (prime=="pab")*(1/3) + (prime=="das")*(1/3) + (prime=="neu")*(-2/3))
+gamble$BvN <- with(gamble, (prime=="pab")*(1/2) + (prime=="das")*(0) + (prime=="neu")*(-1/2))
+gamble$BNvW <- with(gamble, (prime=="pab")*(1/3) + (prime=="das")*(-2/3) + (prime=="neu")*(1/3))
+gamble$WvN <- with(gamble, (prime=="pab")*(0) + (prime=="das")*(1/2) + (prime=="neu")*(-1/2))
+gamble$WNvB <- with(gamble, (prime=="pab")*(-2/3) + (prime=="das")*(1/3) + (prime=="neu")*(1/3))
+
+## Create wide format and Ws
+gamble$beerlo <- with(gamble, (prime=='pab' & choice.RESP==1)*1)
+gamble$beerhi <- with(gamble, (prime=='pab' & choice.RESP==9)*1)
+gamble$waterlo <- with(gamble, (prime=='das' & choice.RESP==1)*1)
+gamble$waterhi <- with(gamble, (prime=='das' & choice.RESP==9)*1)
+gamble$neutlo <- with(gamble, (prime=='neu' & choice.RESP==1)*1)
+gamble$neuthi <- with(gamble, (prime=='neu' & choice.RESP==9)*1)
+
+gamble$beerlo[is.na(gamble$beerlo)] <- 0
+gamble$beerhi[is.na(gamble$beerhi)] <- 0
+gamble$waterlo[is.na(gamble$waterlo)] <- 0
+gamble$waterhi[is.na(gamble$waterhi)] <- 0
+gamble$neutlo[is.na(gamble$neutlo)] <- 0
+gamble$neuthi[is.na(gamble$neuthi)] <- 0
+
+gamble.w <- aggregate(cbind(beerlo, beerhi, waterlo, waterhi, neutlo, neuthi) ~ Subject, data=gamble, FUN=sum)
+
+gamble.w$beer.risk <- with(gamble.w, beerhi/(beerhi+beerlo))
+gamble.w$water.risk <- with(gamble.w, waterhi/(waterhi+waterlo))
+gamble.w$neut.risk <- with(gamble.w, neuthi/(neuthi+neutlo))
+
+gamble.w$beer.dif <- with(gamble.w, beerhi-beerlo)
+gamble.w$water.dif <- with(gamble.w, waterhi-waterlo)
+gamble.w$neut.dif <- with(gamble.w, neuthi-neutlo)
+
+gamble.w$beer.prop <- with(gamble.w, beerhi-beerlo)
+gamble.w$water.prop <- with(gamble.w, waterhi-waterlo)
+gamble.w$neut.dif <- with(gamble.w, neuthi-neutlo)
+
+gamble.w$beerlo.prop <- gamble.w$beerlo/24
+gamble.w$beerhi.prop <- gamble.w$beerhi/24
+gamble.w$watrlo.prop <- gamble.w$waterlo/24
+gamble.w$watrhi.prop <- gamble.w$waterhi/24
+gamble.w$neutlo.prop <- gamble.w$neutlo/24
+gamble.w$neuthi.prop <- gamble.w$neuthi/24
+```
+
+```{r, questionnaire.wrangling.4b, echo=FALSE}
+
+###### Risk  ####### (mean)
+# remove cab question
+gq.risk <- gq.risk[gq.risk$IntoxRiskTaking!=1,]
+gq.risk.w <- aggregate(QuestionSlide.RESP ~ Subject, data=gq.risk, FUN=mean)
+colnames(gq.risk.w) <- c('Subject', 'Risk')
+
+###### RAPI ############### (sum)
+gq.rapi.w <- aggregate(QuestionSlide.RESP ~ Subject, data=gq.rapi, FUN=sum)
+colnames(gq.rapi.w) <- c('Subject', 'RAPI')
+
+###### CEOA ############### (recode then sum)
+#convert 1-4 scale to -2 to +2 scale as used in previous studies
+gq.ae$QuestionSlide.RESP <- (gq.ae$QuestionSlide.RESP==1)*-2 + (gq.ae$QuestionSlide.RESP==2)*-1 + (gq.ae$QuestionSlide.RESP==3)*1 + (gq.ae$QuestionSlide.RESP==4)*2
+gq.ae.w <- aggregate(QuestionSlide.RESP ~ Subject, data=gq.ae, FUN=sum)
+colnames(gq.ae.w) <- c('Subject', 'AE')
+
+# Risk and aggression subscale
+gq.ceoa.ra <- gq.ae
+gq.ceoa.ra$qName <- str_trunc(as.character(gq.ceoa.ra$qName), 4, "right", ellipsis = "")
+gq.ceoa.ra <- gq.ceoa.ra[gq.ceoa.ra$qName %in% c("ae04","ae07","ae13"),]
+
+gq.ceoa.ra.w <- aggregate(QuestionSlide.RESP ~ Subject, data=gq.ceoa.ra, FUN=sum)
+colnames(gq.ceoa.ra.w) <- c('Subject', 'RA')
+
+##########  USE ######### (recode and calc AlcQF)
+# recode Binge using lookup table
+old <- c(9,8,7,6,5,4,3,2,1)
+new <- c(.03,.135,.25,.625,1,2,3.5,5.5,7)
+binge.lu <- data.frame(old,new)             
+gq.use$Binge.re  <- lapply(gq.use$NIAAABinge.RESP, function(x) binge.lu$new[match(x, binge.lu$old)])
+
+# recode Frequency using lookup table
+old <- c(1,2,3,4,5,6,7,8,9)
+new <- c(7,5.5,3.5,2,1,0.625,0.25,0.135,0.03)
+freq.lu <- data.frame(old,new)             
+gq.use$Freq.re  <- lapply(gq.use$NIAAAFrequency.RESP, function(x) freq.lu$new[match(x, freq.lu$old)])
+
+# recode Quantity using lookup table
+old <- c(1,2,3,4,5,6,7,8,9,10)
+new <- c(27,21.5,17,13.5,10,7.5,5.5,3.5,2,1)
+quant.lu <- data.frame(old,new)             
+gq.use$Quantity.re  <- lapply(gq.use$NIAAAQuantity.RESP, function(x) quant.lu$new[match(x, quant.lu$old)])
+
+# recode LifeMax using lookup table
+old <- c(1,2,3,4,5,6,7,8,9,10)
+new <- c(36,30,20.5,14.5,9.5,6,4,3,2,1)
+lmax.lu <- data.frame(old,new)             
+gq.use$LifeMax.re  <- lapply(gq.use$NIAAALifeMax.RESP, function(x) lmax.lu$new[match(x, lmax.lu$old)])
+
+# recode Max using lookup table (same as LifeMax)
+gq.use$Max.re <- lapply(gq.use$NIAAAMax.RESP, function(x) lmax.lu$new[match(x, lmax.lu$old)])
+
+# recode MaxFreq using lookup table (same as Freq)
+gq.use$MaxFreq.re <- lapply(gq.use$NIAAAMaxFreq.RESP, function(x) freq.lu$new[match(x, freq.lu$old)])
+
+# Calc AlcQF score
+gq.use$AlcQF <- as.numeric(gq.use$Freq.re) * as.numeric(gq.use$Quantity.re)
+
+gq.use.w <- gq.use[,c("Subject","NIAAABinge.RESP","Binge.re","NIAAAFrequency.RESP","Freq.re","NIAAALifeMax.RESP","LifeMax.re","NIAAAMax.RESP","Max.re","NIAAAMaxFreq.RESP","MaxFreq.re","NIAAAQuantity.RESP","Quantity.re","AlcQF")] 
+colnames(gq.use.w) <- c('Subject', 'Binge',"Binge.re","Freq",'Freq.re','LifeMax','LifeMax.re', 'Max','Max.re','MaxFreq','MaxFreq.re',"Quantity","Quantity.re","AlcQF")
+
+# Combine questionnaire scores and gambling task measures
+joinlist = list(gamble.w[,c('Subject','beer.dif','water.dif','neut.dif'),] , gq.risk.w, gq.rapi.w, gq.ae.w, gq.use.w, gq.ceoa.ra.w)
+combined <- join_all(joinlist, by="Subject")
+combined1<-combined[,c(2:7,9,11,13,15,17,19,20,21)]
+
+combined.gq <- combined[,-(2:4)]   # questionnaires scores only
+
+# Add questionnaire scores to gambling task dataframe
+gamble <- merge(gamble, combined.gq, "Subject")
+
+# mean center 
+meancent <- function(x) {x-mean(x,na.rm=T)}
+
+gamble$AlcQF.c<-meancent(gamble$AlcQF)
+gamble$Binge.re.c<-meancent(as.numeric(gamble$Binge.re))
+
+gamble[,29:44] <-as.numeric(unlist(gamble[,29:44]))
+gamble[,29:44] <- apply(gamble[,29:44], MARGIN=2, FUN=meancent)    # meancenter all survey variables
+```
+
+```{r, alphacalcs, eval=F, echo=FALSE}
+# calculate cronbach's alpha
+a.gq.ae <- gq.ae[,c(1,17,18)] 
+a.gq.ae1 <- spread(a.gq.ae, "qName", "QuestionSlide.RESP")
+a.gq.ae2 <- a.gq.ae1[,2:15]
+psych::alpha(a.gq.ae2)
+#ae alpha = .74
+
+a.gq.ae.ra <- gq.ceoa.ra[,c(1,17,18)] 
+a.gq.ae.ra1 <- spread(a.gq.ae.ra, "qName", "QuestionSlide.RESP")
+a.gq.ae.ra2 <- a.gq.ae.ra1[,2:4]
+psych::alpha(a.gq.ae.ra2)
+#ae alpha = .55
+
+a.gq.risk <- gq.risk[,c(1,17,18)] 
+a.gq.risk1 <- spread(a.gq.risk, "qName", "QuestionSlide.RESP")
+a.gq.risk2 <- a.gq.risk1[,2:12]
+psych::alpha(a.gq.risk2)
+# risk alpha = .86
+
+a.gq.rapi <- gq.rapi[,c(1,17,18)] 
+a.gq.rapi1 <- spread(a.gq.rapi, "qName", "QuestionSlide.RESP")
+a.gq.rapi2 <- a.gq.rapi1[,2:24]
+psych::alpha(a.gq.rapi2)
+#alpha = .83
+```
+
+## Descriptives and Chart
+```{r, charts.4b, echo=FALSE}
+# convert to tidy data
+gamble.tidy <- gather(gamble.w, resp.type, resp.prop, beerlo.prop:neuthi.prop)
+gamble.tidy$resp.type <- str_trunc(as.character(gamble.tidy$resp.type), 6, "right", ellipsis = "")
+gamble.tidy<-separate(gamble.tidy, resp.type, into=c("prime.type", "risk.resp"), sep = 4)
+gamble.tidy$risk.resp <- ifelse(gamble.tidy$risk.resp=="hi", "High", "Low")
+
+# summarize to calc mean, sd, se, length
+gamble.sum <- summaryBy(resp.prop ~ prime.type + risk.resp, data=gamble.tidy, FUN=c(mean, sd, length))
+colnames(gamble.sum) <- c("prime.type", "risk.resp","m","sd","len")
+gamble.sum$se <- gamble.sum$sd/sqrt(gamble.sum$len)
+gamble.sum$prime.type<-as.factor(gamble.sum$prime.type)
+gamble.sum$risk.resp<-as.factor(gamble.sum$risk.resp)
+
+# stargazer(gamble.w[,16:21], covariate.labels = c("Beer-Low Risk",'Beer-High Risk','Water-Low Risk','Water-High Risk','Neutral-Low Risk','Neutral-High Risk'), type="text")
+
+gamble.sum.named <- gamble.sum
+gamble.sum.named$prime.type <- ifelse(gamble.sum.named$prime.type=="beer", "Beer", ifelse(gamble.sum.named$prime.type=="watr", "Water", "Neutral"))
+colnames(gamble.sum.named) <- c("Prime Type", "Risk Response","Proportion","SD","N", "SE")
+
+options(knitr.table.format = "html")
+kable(gamble.sum.named[,1:5], "html",digits = 3) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+# Bar graph
+          
+ggplot(gamble.sum, aes(x=prime.type, y = m, fill=risk.resp)) +
+  geom_bar(stat = "identity",width=.7, position=position_dodge(.75)) +
+  geom_errorbar(aes(ymin=m-se, ymax=m+se, width=.2), position=position_dodge(.75)) +
+  geom_signif(comparisons = list(c("beer", "neut")), annotations="***", y_position = .7, tip_length = 0.03) +
+  geom_signif(comparisons = list(c("beer", "watr")), annotations="***", y_position = .75, tip_length = 0.03) +
+  geom_signif(y_position=.62, xmin=0.82, xmax=1.18, annotation="***", tip_length=.02) +
+  scale_x_discrete(labels=c("Beer", 'Neutral','Water'), expand=c(0.03,0.03)) +
+  scale_y_continuous(limits = c(0,.8), breaks = seq(0,.8,.1), expand=c(0.00,0.01)) +
+  scale_fill_manual(values=c ("#BA4A00", "#0B5345")) +
+  labs(x = "Prime Type", y = "Response Proportion", fill="Risk") +
+  theme(plot.title = element_text(size=rel(1.5), hjust = .5, face="bold"), 
+        axis.title = element_text(size=16, face="bold"),
+        legend.title = element_text(size=16, face="bold"),
+        axis.text = element_text(size = rel(1),  color="grey25", face="bold"),
+        legend.text = element_text(size = rel(1), color="grey25",face="bold"))
+```
+
+
+## Models {.tabset}
+
+### Simple Effects {.tabset}
+Tests if the difference in propotions of high-risk responses is different from the proportions of low-risk for each prime category.
+
+#### Beer
+```{r, echo=F}
+# Beer simple
+beer1 <- lm(beer.dif~1, gamble.w)
+summary(beer1)
+```
+
+#### Water
+```{r, echo=F}
+# water simple
+water1 <- lm(water.dif~1, gamble.w)
+summary(water1)
+```
+
+#### Neutral
+```{r, echo=F}
+# neutral simple
+neut1 <- lm(neut.dif~1, gamble.w)
+summary(neut1)
+```
+
+
+### Mixed Effects Models {.tabset}
+
+#### Beer vs Water
+This model tests the effects of a Beer vs a Water prime on risk response.  
+Fixed effects:    
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Beer/Water contrast: Beer = +1/2, Water = -1/2, Neutral = 0    
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Orthogonal contrast: Beer = +1/3, Water = +1/3,  Neutral = -2/3  
+Random effects:  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Subject: Intercept, slope for each contrast   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stimuli(pic2): Intercept  
+
+```{r, eval=T, echo=FALSE}
+mixed1 <- glmer(response ~ BvW + BWvN + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixed1)
+```
+
+These models add questionnaire measures and interactions to the list of fixed effects and calculates a questionnaire measure slope for each stimuli picture.    
+  
+Measures:  
+AlcQF - Alcohol use quantity-frequency product (drinks/month)  
+Risk - Risk taking after alcohol consumption  
+RAPI - Rutgers alcohol problem index  
+AE - Alcohol expectancy questionnaire (CEOA)
+```{r, eval=T, echo=FALSE}
+mixed1a <- glmer(response ~ BvW + BWvN + AlcQF*BvW + AlcQF*BWvN + (1+BvW+BWvN|Subject) + (1+AlcQF|pic2), data=gamble, family=binomial(logit))    
+summary(mixed1a)
+
+mixed1c <- glmer(response ~ BvW + BWvN + Risk*BvW + Risk*BWvN + (1+BvW+BWvN|Subject) + (1+Risk|pic2), data=gamble, family=binomial(logit))    
+summary(mixed1c)
+
+mixed1d <- glmer(response ~ BvW + BWvN + RAPI*BvW + RAPI*BWvN + (1+BvW+BWvN|Subject) + (1+RAPI|pic2), data=gamble, family=binomial(logit))    
+summary(mixed1d)
+
+mixed1e <- glmer(response ~ BvW + BWvN + AE*BvW + AE*BWvN + (1+BvW+BWvN|Subject) + (1+AE|pic2), data=gamble, family=binomial(logit))    
+summary(mixed1e)
+```
+
+
+This model includes all the questionnaire measures described above as fixed effects. Only intercepts were calculated for random factors due to convergence limitations.
+```{r, eval=T, echo=FALSE}
+mixed1x <- glmer(response ~ BvW + BWvN + AlcQF + Risk+ RAPI + AE + (1|Subject) + (1|pic2), data=gamble, family=binomial(logit))    
+summary(mixed1x)
+```
+
+#### Beer vs Neutral
+This model tests the effects of a Beer vs a Neutral prime on risk response.  
+Fixed effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Beer/Neutral contrast: Beer = +1/2, Neutral = -1/2, Water = 0   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Orthogonal contrast: Beer = +1/3, Neutral = +1/3,  Water = -2/3  
+Random effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Subject: Intercept, slope for each contrast   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stimuli(pic2): Intercept  
+                
+```{r, eval=T, echo=FALSE}
+mixed2 <- glmer(response ~ BvN + BNvW + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixed2)
+```
+
+These models add questionnaire measures and interactions to the list of fixed effects and calculates a questionnaire measure slope for each stimuli picture.    
+  
+Measures:  
+AlcQF - Alcohol use quantity-frequency product (drinks/month)  
+Risk - Risk taking after alcohol consumption  
+RAPI - Rutgers alcohol problem index  
+AE - Alcohol expectancy questionnaire (CEOA)  
+```{r, eval=T, echo=FALSE}
+mixed2a <- glmer(response ~ BvN + BNvW + AlcQF.c*BvN + AlcQF.c*BNvW + (1+BvN + BNvW|Subject) + (1+AlcQF.c|pic2), data=gamble, family=binomial(logit))    
+summary(mixed2a)
+
+mixed2c <- glmer(response ~ BvN + BNvW + Risk*BvN + Risk*BNvW + (1+BvN+BNvW|Subject) + (1+Risk|pic2), data=gamble, family=binomial(logit))    
+summary(mixed2c)
+
+mixed2d <- glmer(response ~ BvN + BNvW + RAPI*BvN + RAPI*BNvW + (1+BvN+BNvW|Subject) + (1+RAPI|pic2), data=gamble, family=binomial(logit))    
+summary(mixed2d)
+
+mixed2e <- glmer(response ~ BvN + BNvW + AE*BvN + AE*BNvW + (1+BvN+BNvW|Subject) + (1+AE|pic2), data=gamble, family=binomial(logit))    
+summary(mixed2e)
+```
+
+This model includes all the questionnaire measures described above as fixed effects. Only intercepts were calculated for random factors due to convergence limitations.
+```{r, eval=T, echo=FALSE}
+mixed2x <- glmer(response ~ BvN + BNvW + AlcQF + Risk + RAPI + AE + (1|Subject) + (1|pic2), data=gamble, family=binomial(logit))    
+summary(mixed2x)
+```
+
+#### Water vs Neutral
+This model tests the effects of a Water vs a Neutral prime on risk response.  
+Fixed effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Water/Neutral contrast: Water = +1/2, Neutral = -1/2, Beer = 0   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Orthogonal contrast: Water = +1/3, Neutral = +1/3,  Beer = -2/3  
+Random effects:   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Subject: Intercept, slope for each contrast   
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Stimuli(pic2): Intercept  
+                
+```{r, eval=T, echo=FALSE}
+mixed3 <- glmer(response ~ WvN + WNvB + (1+BvW+BWvN|Subject) + (1|pic2), data=gamble, family=binomial(logit))
+summary(mixed3)
+```
+
+These models add questionnaire measures and interactions to the list of fixed effects and calculates a questionnaire measure slope for each stimuli picture.    
+  
+Measures:  
+AlcQF - Alcohol use quantity-frequency product (drinks/month)  
+Risk - Risk taking after alcohol consumption  
+RAPI - Rutgers alcohol problem index  
+AE - Alcohol expectancy questionnaire (CEOA)  
+```{r, eval=T, echo=FALSE}
+mixed3a <- glmer(response ~ WvN + WNvB + AlcQF*WvN + AlcQF*WNvB + (1+WvN + WNvB|Subject) + (1+AlcQF|pic2), data=gamble, family=binomial(logit))    
+summary(mixed3a)
+
+mixed3c <- glmer(response ~ WvN + WNvB + Risk*WvN + Risk*WNvB + (1+WvN+WNvB|Subject) + (1+Risk|pic2), data=gamble, family=binomial(logit))    
+summary(mixed3c)
+
+mixed3d <- glmer(response ~ WvN + WNvB + RAPI*WvN + RAPI*WNvB + (1+WvN+WNvB|Subject) + (1+RAPI|pic2), data=gamble, family=binomial(logit))    
+summary(mixed3d)
+
+mixed3e <- glmer(response ~ WvN + WNvB + AE*WvN + AE*WNvB + (1+WvN+WNvB|Subject) + (1+AE|pic2), data=gamble, family=binomial(logit))    
+summary(mixed3e)
+```
+
+This model includes all the questionnaire measures described above as fixed effects. Only intercepts were calculated for random factors due to convergence limitations.
+```{r, eval=T, echo=FALSE}
+mixed3x <- glmer(response ~ WvN + WNvB + AlcQF + Risk + RAPI + AE + (1|Subject) + (1|pic2), data=gamble, family=binomial(logit))    
+summary(mixed3x)
+```
+
+## Correlations {.tabset}
+
+### NIAAA Use Measures
+**These include raw and recoded (.re) values. P-values shown.**
+```{r, usecorrelations.4b, eval=T, echo=F, fig.width=8, fig.asp=1}
+cor.use <- rcorr(as.matrix(gq.use.w[,2:14]), type="pearson")
+corrplot(cor.use$r, p.mat= cor.use$P, insig='p-value', cl.cex = .8, sig.level=-1, method='circle', number.cex=1.5)
+```
+      
+**Correlation coefficients shown.**
+```{r, eval=T, echo=F, fig.width=8, fig.asp=1}
+# mixed
+corrplot.mixed(cor.use$r, tl.cex=.7)
+```
+
+### Combined 
+beer.dif = hi-risk beer responses - low-risk beer responses    
+water.dif = hi-risk water responses - low-risk water responses   
+neutral.dif = hi-risk neutral responses - low-risk neutral responses  
+AlcQF - Alcohol use quantity-frequency product (drinks/month)  
+Risk - Risk taking after alcohol consumption (alpha = .86)   
+RAPI - Rutgers alcohol problem index (alpha = .83)   
+AE - Alcohol expectancy questionnaire (CEOA, alpha = .74)
+
+**P-values shown.**
+```{r, combined.correlations.4b, eval=T, echo=F, fig.width=8, fig.asp=1}
+cor1 <- rcorr(as.matrix(combined1), type="pearson")
+corrplot(cor1$r, p.mat= cor1$P, insig='p-value', sig.level=-1, method='circle')
+#corrplot(cor1$r, method='circle')
+```
+   
+**Correlation coefficients shown.**
+```{r, eval=T, echo=F, fig.width=8, fig.asp=1}
+# mixed
+corrplot.mixed(cor1$r, tl.cex=.7)
+```
+
+
